@@ -88,7 +88,8 @@ namespace wskia
 
             Console.WriteLine("emscripten_webgl_init_context_attributes");
 
-            attrs.majorVersion = 2;
+            attrs.stencil = 8;
+            // attrs.majorVersion = 2;
             fixed (byte* n = &(s[0]))
             {
                 glContext = emscripten_webgl_create_context(n, &attrs);
@@ -131,6 +132,10 @@ namespace wskia
             {
                 Console.WriteLine("Failed to create surface");
             }
+
+            surface.Canvas.GetLocalClipBounds(out SKRect bounds);
+            Console.WriteLine("clip");
+            Console.WriteLine(bounds.Top + ", " + bounds.Left + " " + bounds.Bottom);
             surface.Canvas.DrawColor(SKColors.White);
         }
     }
