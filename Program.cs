@@ -11,22 +11,22 @@ namespace wskia
         [StructLayout(LayoutKind.Sequential)]
         struct EmscriptenWebGLContextAttributes
         {
-            int alpha;
+            internal int alpha;
             internal int depth;
             internal int stencil;
-            int antialias;
-            int premultipliedAlpha;
-            int preserveDrawingBuffer;
-            int powerPreference;
-            int failIfMajorPerformanceCaveat;
+            internal int antialias;
+            internal int premultipliedAlpha;
+            internal int preserveDrawingBuffer;
+            internal int powerPreference;
+            internal int failIfMajorPerformanceCaveat;
 
             internal int majorVersion;
-            int minorVersion;
+            internal int minorVersion;
 
-            int enableExtensionsByDefault;
-            int explicitSwapControl;
-            int proxyContextToMainThread;
-            int renderViaOffscreenBackBuffer;
+            internal int enableExtensionsByDefault;
+            internal int explicitSwapControl;
+            internal int proxyContextToMainThread;
+            internal int renderViaOffscreenBackBuffer;
         }
 
         [DllImport("*")]
@@ -39,6 +39,17 @@ namespace wskia
         static extern void emscripten_webgl_make_context_current(IntPtr context);
         [DllImport("*")]
         static extern void emscripten_get_canvas_element_size(byte* s, int* width, int* height);
+
+        [DllImport("*")]
+        static extern void glGetIntegerv(int code, int* intv);
+        [DllImport("*")]
+        static extern void glBindFramebuffer(int target, int buffer);
+        [DllImport("*")]
+        static extern void glClearColor(int c1, int c2, int c3, int c4);
+        [DllImport("*")]
+        static extern void glClearStencil(int stencil);
+        [DllImport("*")]
+        static extern void glClear(int flag);
 
         static IntPtr glContext;
 
@@ -55,7 +66,7 @@ namespace wskia
         {
             SKCanvas canvas = surface.Canvas;
 
-            canvas.Clear(SKColors.White);
+//            canvas.Clear(SKColors.White);
 
             // configure our brush
             var redBrush = new SKPaint
@@ -89,7 +100,12 @@ namespace wskia
             Console.WriteLine("emscripten_webgl_init_context_attributes");
 
             attrs.stencil = 8;
-            // attrs.majorVersion = 2;
+            attrs.majorVersion = 2;
+            attrs.depth = 1;
+            attrs.alpha = 1;
+            attrs.enableExtensionsByDefault = 1;
+            attrs.premultipliedAlpha = 1;
+
             fixed (byte* n = &(s[0]))
             {
                 glContext = emscripten_webgl_create_context(n, &attrs);
@@ -100,17 +116,21 @@ namespace wskia
             emscripten_webgl_make_context_current(glContext);
             Console.WriteLine("emscripten_webgl_make_context_current");
 
+//            var grContext = GRContext.CreateGl();
             GRGlInterface grGlInterface = GRGlInterface.Create();
             Console.WriteLine("GRGlInterface.CreateWebGl");
             Console.WriteLine(grGlInterface.Handle.ToString());
             GRContext grContext = GRContext.CreateGl(grGlInterface);
-            Console.WriteLine("GRContext.CreateGl");
-
-            emscripten_set_main_loop(&MainLoop, 0, 0);
-
+            if (grContext.Handle == IntPtr.Zero)
+            {
+                Console.WriteLine("GRContext.CreateGl failed");
+            }
+            else
+            {
+                Console.WriteLine("GRContext.CreateGl");
+            }
 
             const SKColorType colorType = SKColorType.Rgba8888;
-
             int width, height;
             fixed (byte* n = &(s[0]))
             {
@@ -122,21 +142,65 @@ namespace wskia
             var info = new GRGlFramebufferInfo(0, colorType.ToGlSizedFormat());
             Console.WriteLine("GRGlFramebufferInfo");
 
-            surface = SKSurface.Create(grContext, new GRBackendRenderTarget(width, height, 0, 8, info),
-                colorType);
+            int samples;
+            glGetIntegerv(0x80A9, &samples); // GL_SAMPLES
+            Console.WriteLine("Samples");
+            Console.WriteLine(samples.ToString());
+
+            int stencils;
+            glGetIntegerv(0x0D57, &stencils); // GL_STENCIL_BITS
+            Console.WriteLine("Stencils");
+            Console.WriteLine(stencils.ToString());
+            var backendRenderTarget = new GRBackendRenderTarget(width, height, 1 /*samples */, stencils, info);
+            if (backendRenderTarget.Handle == IntPtr.Zero)
+            {
+                Console.WriteLine("failed to create GRBackendRenderTarget ");
+            }
+            if (!backendRenderTarget.IsValid)
+            {
+                Console.WriteLine("backendRenderTarget is not valid ");
+            }
+            else
+            {
+                Console.WriteLine("backendRenderTarget is valid ");
+            }
+
+            // WebGL should already be clearing the color and stencil buffers, but do it again here to
+            // ensure Skia receives them in the expected state.
+             glBindFramebuffer(0x8D40  /* GL_FRAMEBUFFER */, 0);
+            //glClearColor(0, 0, 0, 0);
+  //          glClearStencil(0);
+    //        glClear(0x00004000 /* GL_COLOR_BUFFER_BIT */ | 0x00000400 /* GL_STENCIL_BUFFER_BIT*/ );
+             grContext.ResetContext(GRGlBackendState.RenderTarget | GRGlBackendState.Misc);
+            Console.WriteLine("context reset");
+
+            surface = SKSurface.Create(grContext, backendRenderTarget, colorType);
             if (surface != null)
             {
                 Console.WriteLine("got a surface");
             }
             else
             {
-                Console.WriteLine("Failed to create surface");
+                Console.WriteLine("Failed to create surface, trying SW based");
+                // // we need to throw away the old canvas (which was locked to
+                // // a webGL context) and create a new one so we can
+                // var newCanvas = canvas.cloneNode(true);
+                // var parent = canvas.parentNode;
+                // parent.replaceChild(newCanvas, canvas);
+                // // add a class so the user can detect that it was replaced.
+                // newCanvas.classList.add('ck-replaced');
+                //
+                // return CanvasKit.MakeSWCanvasSurface(newCanvas);
             }
 
             surface.Canvas.GetLocalClipBounds(out SKRect bounds);
             Console.WriteLine("clip");
             Console.WriteLine(bounds.Top + ", " + bounds.Left + " " + bounds.Bottom);
             surface.Canvas.DrawColor(SKColors.White);
+
+            surface.Canvas.Flush();
+
+            emscripten_set_main_loop(&MainLoop, 0, 0);
         }
     }
 }
