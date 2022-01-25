@@ -66,37 +66,51 @@ namespace wskia
             0x0
         };
 
-        static int s_width, s_height;
+        static int _sWidth, _sHeight;
+        static int _frameIx;
+        static int _skip;
 
         [UnmanagedCallersOnly(EntryPoint = "MainLoop")]
         static void MainLoop()
         {
-            SKCanvas canvas = surface.Canvas;
-
-//            canvas.Clear(SKColors.White);
-
-            // configure our brush
-            var redBrush = new SKPaint
+            if (_skip == 0)
             {
-                Color = new SKColor(0xff, 0, 0),
-                IsStroke = true
-            };
-            var blueBrush = new SKPaint
-            {
-                Color = new SKColor(0, 0, 0xff),
-                IsStroke = true
-            };
+                SKCanvas canvas = _surface.Canvas;
 
-            for (int i = 0; i < 64; i += 8)
-            {
-                var rect = new SKRect(i, i, 256 - i - 1, 256 - i - 1);
-                canvas.DrawRect(rect, (i % 16 == 0) ? redBrush : blueBrush);
+                canvas.Clear(SKColors.White);
+
+                // configure our brush
+                var redBrush = new SKPaint
+                {
+                    Color = new SKColor(0xff, 0, 0),
+                    IsStroke = true
+                };
+                var blueBrush = new SKPaint
+                {
+                    Color = new SKColor(0, 0, 0xff),
+                    IsStroke = true
+                };
+
+                for (int i = 0; i < 64; i += 8)
+                {
+                    var iOffset = i + _frameIx;
+                    var rect = new SKRect(iOffset, iOffset, 256 - iOffset - 1, 256 - iOffset - 1);
+                    canvas.DrawRect(rect, (i % 16 == 0) ? redBrush : blueBrush);
+                }
+                _frameIx++;
+                if (_frameIx == 16) _frameIx = 0;
+
+                copyToCanvas((byte*) _surface.PeekPixels().GetPixels(), _sWidth, _sHeight);
+
+                _skip = 2;
             }
-
-            copyToCanvas((byte*)surface.PeekPixels().GetPixels(), s_width, s_height);
-
+            else
+            {
+                _skip--;
+            }
         }
-        static SKSurface surface;
+        
+        static SKSurface? _surface;
 
         static void Main()
         {
@@ -159,8 +173,8 @@ namespace wskia
                 Console.WriteLine(width + "," + height);
             }
 
-            s_width = width;
-            s_height = height;
+            _sWidth = width;
+            _sHeight = height;
 
 #if WEBGL
             var info = new GRGlFramebufferInfo(0, colorType.ToGlSizedFormat());
@@ -192,9 +206,9 @@ namespace wskia
 #if WEBGL
             surface = SKSurface.Create(grContext, backendRenderTarget, colorType);
 #else
-            surface = SKSurface.Create(new SKImageInfo(width, height, colorType));
+            _surface = SKSurface.Create(new SKImageInfo(width, height, colorType));
 #endif
-            if (surface != null)
+            if (_surface != null)
             {
                 Console.WriteLine("got a surface");
             }
@@ -204,13 +218,7 @@ namespace wskia
                 return;
             }
 
-            surface.Canvas.GetLocalClipBounds(out SKRect bounds);
-            Console.WriteLine("clip");
-            Console.WriteLine(bounds.Top + ", " + bounds.Left + " " + bounds.Bottom);
-            surface.Canvas.DrawColor(SKColors.White);
-
-            surface.Canvas.Flush();
-            copyToCanvas((byte*)surface.PeekPixels().GetPixels(), width, height);
+            copyToCanvas((byte*)_surface.PeekPixels().GetPixels(), width, height);
             emscripten_set_main_loop(&MainLoop, 0, 0);
         }
     }
