@@ -31,12 +31,17 @@ namespace wskia
 
         [DllImport("*")]
         internal static extern unsafe void emscripten_set_main_loop(delegate* unmanaged <void> f, int fps, int simulate_infinite_loop);
+#if WEBGL
         [DllImport("*")]
         static extern IntPtr emscripten_webgl_create_context(byte* s, EmscriptenWebGLContextAttributes* attr);
         [DllImport("*")]
         static extern void emscripten_webgl_init_context_attributes(EmscriptenWebGLContextAttributes* attr);
         [DllImport("*")]
         static extern void emscripten_webgl_make_context_current(IntPtr context);
+#else
+        [DllImport("*")]
+        static extern IntPtr copyToCanvas(byte* buffer, int width, int height);
+#endif
         [DllImport("*")]
         static extern void emscripten_get_canvas_element_size(byte* s, int* width, int* height);
 
@@ -60,6 +65,8 @@ namespace wskia
             0x63,0x61,0x6E,0x76, 0x61, 0x73,
             0x0
         };
+
+        static int s_width, s_height;
 
         [UnmanagedCallersOnly(EntryPoint = "MainLoop")]
         static void MainLoop()
@@ -85,6 +92,9 @@ namespace wskia
                 var rect = new SKRect(i, i, 256 - i - 1, 256 - i - 1);
                 canvas.DrawRect(rect, (i % 16 == 0) ? redBrush : blueBrush);
             }
+
+            copyToCanvas((byte*)surface.PeekPixels().GetPixels(), s_width, s_height);
+
         }
         static SKSurface surface;
 
@@ -94,6 +104,7 @@ namespace wskia
             // See https://aka.ms/new-console-template for more information
             Console.WriteLine("Hello, World!");
 
+#if WEBGL
             EmscriptenWebGLContextAttributes attrs;
             emscripten_webgl_init_context_attributes(&attrs);
 
@@ -112,10 +123,8 @@ namespace wskia
             }
             Console.WriteLine("emscripten_webgl_create_context:");
             Console.WriteLine(glContext.ToInt32().ToString());
-
             emscripten_webgl_make_context_current(glContext);
             Console.WriteLine("emscripten_webgl_make_context_current");
-
 //            var grContext = GRContext.CreateGl();
             GRGlInterface grGlInterface = GRGlInterface.Create();
             Console.WriteLine("GRGlInterface.CreateWebGl");
@@ -129,6 +138,17 @@ namespace wskia
             {
                 Console.WriteLine("GRContext.CreateGl");
             }
+            var grContext = GRContext.CreateGl();
+            int samples;
+            glGetIntegerv(0x80A9, &samples); // GL_SAMPLES
+            Console.WriteLine("Samples");
+            Console.WriteLine(samples.ToString());
+
+            int stencils;
+            glGetIntegerv(0x0D57, &stencils); // GL_STENCIL_BITS
+            Console.WriteLine("Stencils");
+            Console.WriteLine(stencils.ToString());
+#endif
 
             const SKColorType colorType = SKColorType.Rgba8888;
             int width, height;
@@ -139,18 +159,12 @@ namespace wskia
                 Console.WriteLine(width + "," + height);
             }
 
+            s_width = width;
+            s_height = height;
+
+#if WEBGL
             var info = new GRGlFramebufferInfo(0, colorType.ToGlSizedFormat());
             Console.WriteLine("GRGlFramebufferInfo");
-
-            int samples;
-            glGetIntegerv(0x80A9, &samples); // GL_SAMPLES
-            Console.WriteLine("Samples");
-            Console.WriteLine(samples.ToString());
-
-            int stencils;
-            glGetIntegerv(0x0D57, &stencils); // GL_STENCIL_BITS
-            Console.WriteLine("Stencils");
-            Console.WriteLine(stencils.ToString());
             var backendRenderTarget = new GRBackendRenderTarget(width, height, 1 /*samples */, stencils, info);
             if (backendRenderTarget.Handle == IntPtr.Zero)
             {
@@ -164,33 +178,30 @@ namespace wskia
             {
                 Console.WriteLine("backendRenderTarget is valid ");
             }
-
             // WebGL should already be clearing the color and stencil buffers, but do it again here to
             // ensure Skia receives them in the expected state.
-             glBindFramebuffer(0x8D40  /* GL_FRAMEBUFFER */, 0);
+            // glBindFramebuffer(0x8D40  /* GL_FRAMEBUFFER */, 0);
             //glClearColor(0, 0, 0, 0);
-  //          glClearStencil(0);
-    //        glClear(0x00004000 /* GL_COLOR_BUFFER_BIT */ | 0x00000400 /* GL_STENCIL_BUFFER_BIT*/ );
-             grContext.ResetContext(GRGlBackendState.RenderTarget | GRGlBackendState.Misc);
-            Console.WriteLine("context reset");
+            //          glClearStencil(0);
+            //        glClear(0x00004000 /* GL_COLOR_BUFFER_BIT */ | 0x00000400 /* GL_STENCIL_BUFFER_BIT*/ );
+            //  grContext.ResetContext(GRGlBackendState.RenderTarget | GRGlBackendState.Misc);
+            // Console.WriteLine("context reset");
 
+#endif
+
+#if WEBGL
             surface = SKSurface.Create(grContext, backendRenderTarget, colorType);
+#else
+            surface = SKSurface.Create(new SKImageInfo(width, height, colorType));
+#endif
             if (surface != null)
             {
                 Console.WriteLine("got a surface");
             }
             else
             {
-                Console.WriteLine("Failed to create surface, trying SW based");
-                // // we need to throw away the old canvas (which was locked to
-                // // a webGL context) and create a new one so we can
-                // var newCanvas = canvas.cloneNode(true);
-                // var parent = canvas.parentNode;
-                // parent.replaceChild(newCanvas, canvas);
-                // // add a class so the user can detect that it was replaced.
-                // newCanvas.classList.add('ck-replaced');
-                //
-                // return CanvasKit.MakeSWCanvasSurface(newCanvas);
+                Console.WriteLine("Failed to create surface");
+                return;
             }
 
             surface.Canvas.GetLocalClipBounds(out SKRect bounds);
@@ -199,7 +210,7 @@ namespace wskia
             surface.Canvas.DrawColor(SKColors.White);
 
             surface.Canvas.Flush();
-
+            copyToCanvas((byte*)surface.PeekPixels().GetPixels(), width, height);
             emscripten_set_main_loop(&MainLoop, 0, 0);
         }
     }
