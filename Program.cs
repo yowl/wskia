@@ -69,6 +69,7 @@ namespace wskia
         static int _sWidth, _sHeight;
         static int _frameIx;
         static int _skip;
+        static int _degree;
 
         [UnmanagedCallersOnly(EntryPoint = "MainLoop")]
         static void MainLoop()
@@ -98,16 +99,24 @@ namespace wskia
                     canvas.DrawRect(rect, (i % 16 == 0) ? redBrush : blueBrush);
                 }
                 _frameIx++;
-                if (_frameIx == 16) _frameIx = 0;
+                if (_frameIx == 32) _frameIx = 0;
 
+#if WEBGL
+                var matrix = SKMatrix.CreateRotationDegrees(_degree, 128, 128);
+                _surface.Canvas.SetMatrix(matrix);
+                _surface.Flush();
+#else
                 copyToCanvas((byte*) _surface.PeekPixels().GetPixels(), _sWidth, _sHeight);
-
+#endif
                 _skip = 2;
             }
             else
             {
                 _skip--;
             }
+
+            _degree++;
+            if (_degree == 360) _degree = 0;
         }
         
         static SKSurface? _surface;
@@ -122,7 +131,7 @@ namespace wskia
             EmscriptenWebGLContextAttributes attrs;
             emscripten_webgl_init_context_attributes(&attrs);
 
-            Console.WriteLine("emscripten_webgl_init_context_attributes");
+            Console.WriteLine("emscripten_webgl_init_context_attributes"); 
 
             attrs.stencil = 8;
             attrs.majorVersion = 2;
@@ -139,11 +148,11 @@ namespace wskia
             Console.WriteLine(glContext.ToInt32().ToString());
             emscripten_webgl_make_context_current(glContext);
             Console.WriteLine("emscripten_webgl_make_context_current");
-//            var grContext = GRContext.CreateGl();
-            GRGlInterface grGlInterface = GRGlInterface.Create();
+            var grContext = GRContext.CreateGl();
+            // GRGlInterface grGlInterface = GRGlInterface.Create();
             Console.WriteLine("GRGlInterface.CreateWebGl");
-            Console.WriteLine(grGlInterface.Handle.ToString());
-            GRContext grContext = GRContext.CreateGl(grGlInterface);
+            // Console.WriteLine(grGlInterface.Handle.ToString());
+            // GRContext grContext = GRContext.CreateGl(grGlInterface);
             if (grContext.Handle == IntPtr.Zero)
             {
                 Console.WriteLine("GRContext.CreateGl failed");
@@ -152,7 +161,7 @@ namespace wskia
             {
                 Console.WriteLine("GRContext.CreateGl");
             }
-            var grContext = GRContext.CreateGl();
+            //var grContext = GRContext.CreateGl();
             int samples;
             glGetIntegerv(0x80A9, &samples); // GL_SAMPLES
             Console.WriteLine("Samples");
@@ -204,7 +213,7 @@ namespace wskia
 #endif
 
 #if WEBGL
-            surface = SKSurface.Create(grContext, backendRenderTarget, colorType);
+            _surface = SKSurface.Create(grContext, backendRenderTarget, colorType);
 #else
             _surface = SKSurface.Create(new SKImageInfo(width, height, colorType));
 #endif
@@ -218,7 +227,9 @@ namespace wskia
                 return;
             }
 
+#if !WEBGL
             copyToCanvas((byte*)_surface.PeekPixels().GetPixels(), width, height);
+#endif
             emscripten_set_main_loop(&MainLoop, 0, 0);
         }
     }
